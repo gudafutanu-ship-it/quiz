@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <link rel="apple-touch-icon" href="theme100.png">
+ <link rel="icon" type="image/png" href="theme100.png">
+
+<title>フラッシュクイズ</title>
+
+<style>
+body{
+  margin:0;
+  font-family:sans-serif;
+  background:#12243b;
+  color:white;
+  text-align:center;
+}
+.app{max-width:600px;margin:auto;padding:10px}
+.panel{
+  background:#34445b;
+  border-radius:20px;
+  padding:15px;
+  margin:10px 0;
+}
+select,button{
+  font-size:16px;
+  padding:10px;
+  border-radius:10px;
+  border:none;
+  margin:5px;
+}
+button{cursor:pointer}
+.start{background:#06d6a0}
+.next{background:#ffd166}
+.stop{background:#ef476f;color:white}
+.choice{
+  display:block;
+  background:white;
+  color:black;
+  margin:10px auto;
+  padding:12px;
+  border-radius:10px;
+}
+.correct{background:#06d6a0!important}
+.wrong{background:#ef476f!important;color:white!important}
+#question{
+  white-space:pre-line;
+  font-size:18px;
+  margin:10px 0;
+}
+.result{font-size:20px;font-weight:bold}
+.info{
+  font-size:15px;
+  font-weight:bold;
+  color:#ffe8a3;
+  margin-top:8px;
+}
+#speedButtons button{
+  background:#ddd;
+  color:#111;
+  font-weight:bold;
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+<h1>🌟 神レベルクイズ</h1>
+
+<div class="panel">
+  <select id="theme"></select>
+
+  <select id="mode">
+    <option value="card">カード</option>
+    <option value="quiz_note">説明→名前</option>
+    <option value="quiz_meaning">分類→名前</option>
+    <option value="quiz_word">名前→分類</option>
+    <option value="quiz_mix">ミックス</option>
+  </select>
+
+  <div class="info" id="countInfo">0枚</div>
+  <div class="info" id="progressInfo">0 / 0</div>
+
+  <div id="speedButtons">
+    <button onclick="setSpeed(0)">手動</button>
+    <button onclick="setSpeed(0.5)">0.5秒</button>
+    <button onclick="setSpeed(1)">1秒</button>
+    <button onclick="setSpeed(2)">2秒</button>
+  </div>
+
+  <button id="voiceBtn" onclick="toggleVoice()">🔇 音声OFF</button>
+
+  <br>
+
+  <button class="start" onclick="start()">スタート</button>
+  <button class="next" onclick="next()">次へ</button>
+  <button class="stop" onclick="stop()">ストップ</button>
+
+  <div>正解:<span id="ok">0</span> 不正解:<span id="ng">0</span></div>
+</div>
+
+<div class="panel">
+  <div id="question">読み込み中...</div>
+  <div id="choices"></div>
+  <div id="result" class="result"></div>
+
+  <a id="link" href="#" target="_blank" style="display:none;color:#9bf6ff;font-weight:bold;">
+    詳しく見る
+  </a>
+</div>
+
+</div>
+
+<script>
+const WORKER_BASE="https://flag-flash.gudafutanu.workers.dev";
+
+const THEMES=[
+  {key:"museum",label:"博物館"},
+  {key:"composer",label:"作曲家"},
+  {key:"dodgers",label:"ドジャース"},
+  {key:"dinosaur",label:"恐竜"},
+  {key:"flags",label:"国旗"},
+  {key:"animal",label:"動物"},
+  {key:"flower",label:"花"}
+];
+
+const themeEl=document.getElementById("theme");
+const modeEl=document.getElementById("mode");
+const questionEl=document.getElementById("question");
+const choicesEl=document.getElementById("choices");
+const resultEl=document.getElementById("result");
+const linkEl=document.getElementById("link");
+const countInfoEl=document.getElementById("countInfo");
+const progressInfoEl=document.getElementById("progressInfo");
+
+let data=[];
+let index=0;
+let timer=null;
+let ok=0;
+let ng=0;
+let currentAnswer=null;
+let speed=0;
+let voiceOn=false;
+let finished=false;
+
+function buildTheme(){
+  themeEl.innerHTML="";
+  THEMES.forEach(t=>{
+    const opt=document.createElement("option");
+    opt.value=t.key;
+    opt.textContent=t.label;
+    themeEl.appendChild(opt);
+  });
+}
+
+function themeLabel(key){
+  const t=THEMES.find(x=>x.key===key);
+  return t ? t.label : key;
+}
+
+async function loadData(){
+  stop();
+  const key=themeEl.value;
+  questionEl.textContent="読み込み中...";
+  choicesEl.innerHTML="";
+  resultEl.textContent="";
+  linkEl.style.display="none";
+  finished=false;
+
+  try{
+    const res=await fetch(`${WORKER_BASE}/data?key=${key}`);
+    data=await res.json();
+    index=0;
+
+    countInfoEl.textContent=`${themeLabel(key)}（${data.length}枚）`;
+    updateProgress();
+    show();
+
+  }catch(e){
+    questionEl.textContent="読み込み失敗";
+    countInfoEl.textContent="0枚";
+    progressInfoEl.textContent="0 / 0";
+  }
+}
+
+function updateProgress(){
+  if(!data.length){
+    progressInfoEl.textContent="0 / 0";
+    return;
+  }
+  progressInfoEl.textContent=`進捗：${index+1} / ${data.length}`;
+}
+
+function show(){
+  if(!data.length)return;
+
+  const mode=modeEl.value;
+  resultEl.textContent="";
+  choicesEl.innerHTML="";
+  linkEl.style.display="none";
+  updateProgress();
+
+  const item=data[index];
+  currentAnswer=item;
+
+  if(mode==="card"){
+    questionEl.textContent=
+      `(${index+1}/${data.length})\n\n`+
+      item.word+"\n\n"+
+      item.meaning+"\n\n"+
+      item.note;
+
+    if(item.link){
+      linkEl.href=item.link;
+      linkEl.style.display="inline-block";
+    }
+
+    speak(item.word+"。"+item.meaning);
+    return;
+  }
+
+  makeQuiz(mode);
+}
+
+function makeQuiz(mode){
+  let q="";
+  let correct="";
+
+  if(mode==="quiz_mix"){
+    const m=["quiz_note","quiz_meaning","quiz_word"];
+    mode=m[Math.floor(Math.random()*m.length)];
+  }
+
+  if(mode==="quiz_note"){
+    q=`(${index+1}/${data.length})\n\n問題：次の説明に当てはまるものはどれ？\n\n`+currentAnswer.note;
+    correct=currentAnswer.word;
+  }
+
+  if(mode==="quiz_meaning"){
+    q=`(${index+1}/${data.length})\n\n問題：次の分類・特徴に当てはまるものはどれ？\n\n`+currentAnswer.meaning;
+    correct=currentAnswer.word;
+  }
+
+  if(mode==="quiz_word"){
+    q=`(${index+1}/${data.length})\n\n問題：「`+currentAnswer.word+"」の分類はどれ？";
+    correct=currentAnswer.meaning;
+  }
+
+  questionEl.textContent=q;
+  speak(q);
+
+  let choices=[currentAnswer];
+
+  while(choices.length<Math.min(4,data.length)){
+    const r=data[Math.floor(Math.random()*data.length)];
+    if(!choices.some(c=>c.word===r.word))choices.push(r);
+  }
+
+  choices.sort(()=>Math.random()-0.5);
+
+  choices.forEach(item=>{
+    const btn=document.createElement("button");
+    btn.className="choice";
+    btn.textContent=(mode==="quiz_word")?item.meaning:item.word;
+
+    btn.onclick=()=>{
+      const selected=(mode==="quiz_word")?item.meaning:item.word;
+
+      if(selected===correct){
+        btn.classList.add("correct");
+        resultEl.textContent="正解！";
+        ok++;
+      }else{
+        btn.classList.add("wrong");
+        resultEl.textContent="残念 正解："+correct;
+        ng++;
+      }
+
+      document.getElementById("ok").textContent=ok;
+      document.getElementById("ng").textContent=ng;
+    };
+
+    choicesEl.appendChild(btn);
+  });
+}
+
+function next(){
+  if(!data.length)return;
+
+  if(index >= data.length-1){
+    stop();
+    finished=true;
+    questionEl.textContent=
+      `🎉 終了です\n\n${themeLabel(themeEl.value)}のカードは最後まで終わりました。\n\nもう一度見る場合は「スタート」を押してください。`;
+    choicesEl.innerHTML="";
+    resultEl.textContent="";
+    linkEl.style.display="none";
+    progressInfoEl.textContent=`完了：${data.length} / ${data.length}`;
+    speak("終了です。カードは最後まで終わりました。");
+    return;
+  }
+
+  index++;
+  show();
+}
+
+function start(){
+  stop();
+  index=0;
+  finished=false;
+  show();
+
+  if(speed>0){
+    timer=setInterval(next,speed*1000);
+  }
+}
+
+function stop(){
+  if(timer){
+    clearInterval(timer);
+    timer=null;
+  }
+}
+
+function setSpeed(s){
+  speed=s;
+
+  document.querySelectorAll("#speedButtons button").forEach(btn=>{
+    btn.style.background="#ddd";
+  });
+
+  event.target.style.background="#06d6a0";
+
+  if(timer){
+    start();
+  }
+}
+
+function toggleVoice(){
+  voiceOn=!voiceOn;
+  document.getElementById("voiceBtn").textContent=
+    voiceOn?"🔊 音声ON":"🔇 音声OFF";
+}
+
+function speak(text){
+  if(!voiceOn)return;
+  if(!text)return;
+
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang="ja-JP";
+  u.rate=0.9;
+  speechSynthesis.speak(u);
+}
+
+buildTheme();
+loadData();
+
+themeEl.onchange=loadData;
+modeEl.onchange=show;
+</script>
+</body>
+</html>
