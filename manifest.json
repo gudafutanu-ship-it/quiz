@@ -1,0 +1,21 @@
+{
+  "name": "1テーマ100個フラッシュ",
+  "short_name": "テーマ100",
+  "start_url": "/theme100/",
+  "scope": "/theme100/",
+  "display": "standalone",
+  "background_color": "#f4f6fb",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "theme100.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "theme100.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
