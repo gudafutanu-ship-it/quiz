@@ -3,64 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
- <link rel="apple-touch-icon" href="theme100.png">
- <link rel="icon" type="image/png" href="theme100.png">
-
-<title>フラッシュクイズ</title>
+<title>神レベルクイズ</title>
 
 <style>
-body{
-  margin:0;
-  font-family:sans-serif;
-  background:#12243b;
-  color:white;
-  text-align:center;
-}
+body{margin:0;font-family:sans-serif;background:#12243b;color:white;text-align:center}
 .app{max-width:600px;margin:auto;padding:10px}
-.panel{
-  background:#34445b;
-  border-radius:20px;
-  padding:15px;
-  margin:10px 0;
-}
-select,button{
-  font-size:16px;
-  padding:10px;
-  border-radius:10px;
-  border:none;
-  margin:5px;
-}
+.panel{background:#34445b;border-radius:20px;padding:15px;margin:10px 0}
+select,button{font-size:16px;padding:10px;border-radius:10px;border:none;margin:5px}
 button{cursor:pointer}
 .start{background:#06d6a0}
 .next{background:#ffd166}
 .stop{background:#ef476f;color:white}
-.choice{
-  display:block;
-  background:white;
-  color:black;
-  margin:10px auto;
-  padding:12px;
-  border-radius:10px;
-}
+.choice{display:block;background:white;color:black;margin:10px auto;padding:12px;border-radius:10px;min-width:70%}
 .correct{background:#06d6a0!important}
 .wrong{background:#ef476f!important;color:white!important}
-#question{
-  white-space:pre-line;
-  font-size:18px;
-  margin:10px 0;
-}
+#question{white-space:pre-line;font-size:18px;margin:10px 0;line-height:1.7}
 .result{font-size:20px;font-weight:bold}
-.info{
-  font-size:15px;
-  font-weight:bold;
-  color:#ffe8a3;
-  margin-top:8px;
-}
-#speedButtons button{
-  background:#ddd;
-  color:#111;
-  font-weight:bold;
-}
+.info{font-size:15px;font-weight:bold;color:#ffe8a3;margin-top:6px}
+#speedButtons button{background:#ddd;color:#111;font-weight:bold}
+#quizImage{display:none;max-width:90%;max-height:190px;border-radius:14px;margin:10px auto}
+.link{display:none;color:#9bf6ff;font-weight:bold;margin-top:12px}
 </style>
 </head>
 
@@ -71,26 +33,22 @@ button{cursor:pointer}
 
 <div class="panel">
   <select id="theme"></select>
-
   <select id="mode">
     <option value="card">カード</option>
-    <option value="quiz_note">説明→名前</option>
-    <option value="quiz_meaning">分類→名前</option>
-    <option value="quiz_word">名前→分類</option>
-    <option value="quiz_mix">ミックス</option>
+    <option value="quiz">問題</option>
   </select>
 
   <div class="info" id="countInfo">0枚</div>
-  <div class="info" id="progressInfo">0 / 0</div>
 
   <div id="speedButtons">
-    <button onclick="setSpeed(0)">手動</button>
-    <button onclick="setSpeed(0.5)">0.5秒</button>
-    <button onclick="setSpeed(1)">1秒</button>
-    <button onclick="setSpeed(2)">2秒</button>
+    <button onclick="setSpeed(0,this)">手動</button>
+    <button onclick="setSpeed(0.5,this)">0.5秒</button>
+    <button onclick="setSpeed(1,this)">1秒</button>
+    <button onclick="setSpeed(2,this)">2秒</button>
   </div>
 
   <button id="voiceBtn" onclick="toggleVoice()">🔇 音声OFF</button>
+  <button onclick="resetScore()">リセット</button>
 
   <br>
 
@@ -98,17 +56,19 @@ button{cursor:pointer}
   <button class="next" onclick="next()">次へ</button>
   <button class="stop" onclick="stop()">ストップ</button>
 
-  <div>正解:<span id="ok">0</span> 不正解:<span id="ng">0</span></div>
+  <div class="info">
+    正解:<span id="ok">0</span>
+    不正解:<span id="ng">0</span>
+    進捗:<span id="progressInfo">0 / 0</span>
+  </div>
 </div>
 
 <div class="panel">
+  <img id="quizImage" alt="">
   <div id="question">読み込み中...</div>
   <div id="choices"></div>
   <div id="result" class="result"></div>
-
-  <a id="link" href="#" target="_blank" style="display:none;color:#9bf6ff;font-weight:bold;">
-    詳しく見る
-  </a>
+  <a id="link" class="link" href="#" target="_blank" rel="noopener">詳しく見る</a>
 </div>
 
 </div>
@@ -134,16 +94,15 @@ const resultEl=document.getElementById("result");
 const linkEl=document.getElementById("link");
 const countInfoEl=document.getElementById("countInfo");
 const progressInfoEl=document.getElementById("progressInfo");
+const quizImageEl=document.getElementById("quizImage");
 
 let data=[];
 let index=0;
 let timer=null;
 let ok=0;
 let ng=0;
-let currentAnswer=null;
 let speed=0;
 let voiceOn=false;
-let finished=false;
 
 function buildTheme(){
   themeEl.innerHTML="";
@@ -163,14 +122,17 @@ function themeLabel(key){
 async function loadData(){
   stop();
   const key=themeEl.value;
+
   questionEl.textContent="読み込み中...";
   choicesEl.innerHTML="";
   resultEl.textContent="";
   linkEl.style.display="none";
-  finished=false;
+  quizImageEl.style.display="none";
 
   try{
-    const res=await fetch(`${WORKER_BASE}/data?key=${key}`);
+    const res=await fetch(`${WORKER_BASE}/data?key=${encodeURIComponent(key)}`);
+    if(!res.ok) throw new Error("読み込み失敗");
+
     data=await res.json();
     index=0;
 
@@ -190,85 +152,86 @@ function updateProgress(){
     progressInfoEl.textContent="0 / 0";
     return;
   }
-  progressInfoEl.textContent=`進捗：${index+1} / ${data.length}`;
+  progressInfoEl.textContent=`${index+1} / ${data.length}`;
 }
 
 function show(){
   if(!data.length)return;
 
-  const mode=modeEl.value;
   resultEl.textContent="";
   choicesEl.innerHTML="";
   linkEl.style.display="none";
+  quizImageEl.style.display="none";
   updateProgress();
 
   const item=data[index];
-  currentAnswer=item;
 
-  if(mode==="card"){
-    questionEl.textContent=
-      `(${index+1}/${data.length})\n\n`+
-      item.word+"\n\n"+
-      item.meaning+"\n\n"+
-      item.note;
-
-    if(item.link){
-      linkEl.href=item.link;
-      linkEl.style.display="inline-block";
-    }
-
-    speak(item.word+"。"+item.meaning);
-    return;
+  if(modeEl.value==="card"){
+    showCard(item);
+  }else{
+    makeQuiz(item);
   }
-
-  makeQuiz(mode);
 }
 
-function makeQuiz(mode){
+function showCard(item){
+  questionEl.textContent=
+    (item.word || "") + "\n\n" +
+    (item.meaning || "") + "\n\n" +
+    (item.note || "");
+
+  if(item.image){
+    quizImageEl.src=item.image;
+    quizImageEl.style.display="block";
+  }
+
+  if(item.link){
+    linkEl.href=item.link;
+    linkEl.style.display="inline-block";
+  }
+
+  speak((item.word || "") + "。" + (item.meaning || ""));
+}
+
+function makeQuiz(item){
+  const isFlag = themeEl.value === "flags";
+
+  let correct=item.word || "";
   let q="";
-  let correct="";
 
-  if(mode==="quiz_mix"){
-    const m=["quiz_note","quiz_meaning","quiz_word"];
-    mode=m[Math.floor(Math.random()*m.length)];
-  }
+  if(isFlag){
+    q="この国旗はどこの国の国旗でしょう？";
 
-  if(mode==="quiz_note"){
-    q=`(${index+1}/${data.length})\n\n問題：次の説明に当てはまるものはどれ？\n\n`+currentAnswer.note;
-    correct=currentAnswer.word;
-  }
-
-  if(mode==="quiz_meaning"){
-    q=`(${index+1}/${data.length})\n\n問題：次の分類・特徴に当てはまるものはどれ？\n\n`+currentAnswer.meaning;
-    correct=currentAnswer.word;
-  }
-
-  if(mode==="quiz_word"){
-    q=`(${index+1}/${data.length})\n\n問題：「`+currentAnswer.word+"」の分類はどれ？";
-    correct=currentAnswer.meaning;
+    if(item.image){
+      quizImageEl.src=item.image;
+      quizImageEl.style.display="block";
+    }
+  }else{
+    q="問題：次の説明に当てはまるものはどれ？\n\n" + (item.note || "");
   }
 
   questionEl.textContent=q;
   speak(q);
 
-  let choices=[currentAnswer];
+  let choices=[item];
 
   while(choices.length<Math.min(4,data.length)){
     const r=data[Math.floor(Math.random()*data.length)];
-    if(!choices.some(c=>c.word===r.word))choices.push(r);
+    if(!choices.some(c=>c.word===r.word)){
+      choices.push(r);
+    }
   }
 
   choices.sort(()=>Math.random()-0.5);
 
-  choices.forEach(item=>{
+  choices.forEach(choice=>{
     const btn=document.createElement("button");
     btn.className="choice";
-    btn.textContent=(mode==="quiz_word")?item.meaning:item.word;
+    btn.textContent=choice.word;
 
     btn.onclick=()=>{
-      const selected=(mode==="quiz_word")?item.meaning:item.word;
+      document.querySelectorAll(".choice").forEach(b=>b.disabled=true);
 
-      if(selected===correct){
+      if(choice.word===correct){
         btn.classList.add("correct");
         resultEl.textContent="正解！";
         ok++;
@@ -276,10 +239,21 @@ function makeQuiz(mode){
         btn.classList.add("wrong");
         resultEl.textContent="残念 正解："+correct;
         ng++;
+
+        document.querySelectorAll(".choice").forEach(b=>{
+          if(b.textContent===correct){
+            b.classList.add("correct");
+          }
+        });
       }
 
       document.getElementById("ok").textContent=ok;
       document.getElementById("ng").textContent=ng;
+
+      if(item.link){
+        linkEl.href=item.link;
+        linkEl.style.display="inline-block";
+      }
     };
 
     choicesEl.appendChild(btn);
@@ -291,13 +265,13 @@ function next(){
 
   if(index >= data.length-1){
     stop();
-    finished=true;
     questionEl.textContent=
       `🎉 終了です\n\n${themeLabel(themeEl.value)}のカードは最後まで終わりました。\n\nもう一度見る場合は「スタート」を押してください。`;
     choicesEl.innerHTML="";
     resultEl.textContent="";
     linkEl.style.display="none";
-    progressInfoEl.textContent=`完了：${data.length} / ${data.length}`;
+    quizImageEl.style.display="none";
+    progressInfoEl.textContent=`${data.length} / ${data.length}`;
     speak("終了です。カードは最後まで終わりました。");
     return;
   }
@@ -309,7 +283,6 @@ function next(){
 function start(){
   stop();
   index=0;
-  finished=false;
   show();
 
   if(speed>0){
@@ -324,14 +297,14 @@ function stop(){
   }
 }
 
-function setSpeed(s){
+function setSpeed(s,btn){
   speed=s;
 
-  document.querySelectorAll("#speedButtons button").forEach(btn=>{
-    btn.style.background="#ddd";
+  document.querySelectorAll("#speedButtons button").forEach(b=>{
+    b.style.background="#ddd";
   });
 
-  event.target.style.background="#06d6a0";
+  if(btn) btn.style.background="#06d6a0";
 
   if(timer){
     start();
@@ -341,7 +314,7 @@ function setSpeed(s){
 function toggleVoice(){
   voiceOn=!voiceOn;
   document.getElementById("voiceBtn").textContent=
-    voiceOn?"🔊 音声ON":"🔇 音声OFF";
+    voiceOn ? "🔊 音声ON" : "🔇 音声OFF";
 }
 
 function speak(text){
@@ -353,6 +326,14 @@ function speak(text){
   u.lang="ja-JP";
   u.rate=0.9;
   speechSynthesis.speak(u);
+}
+
+function resetScore(){
+  ok=0;
+  ng=0;
+  document.getElementById("ok").textContent=0;
+  document.getElementById("ng").textContent=0;
+  resultEl.textContent="点数をリセットしました";
 }
 
 buildTheme();
